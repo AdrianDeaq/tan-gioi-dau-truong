@@ -1,0 +1,19 @@
+{
+  "name": "tan-gioi-dau-truong-3d-multiplayer",
+  "version": "1.0.0",
+  "description": "Tân Giới Đấu Trường 3D — real-time multiplayer arena (Three.js + Socket.IO)",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "convert": "node convert.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tan-gioi-dau-truong
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: MAX_PLAYERS
+        value: "16"

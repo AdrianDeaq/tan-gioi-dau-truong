@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tân Giới Đấu Trường 3D — Multiplayer</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+        html, body {
+            margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+            background: #0a1a2a; font-family: 'Be Vietnam Pro', sans-serif; color: #f8fafc;
+        }
+        #game-container { position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: crosshair; }
+        #game-container canvas { display: block; width: 100%; height: 100%; }
+
+        .panel-glass {
+            background: linear-gradient(145deg, rgba(11, 18, 34, 0.88), rgba(6, 10, 22, 0.94));
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            
+        }
+
+        #world-overlay { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 12; }
+        .bot-overhead {
+            position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); will-change: transform;
+            display: flex; flex-direction: column; align-items: center; min-width: 148px;
+        }
+        .bot-status-pill {
+            font-size: 10px; font-weight: 900; padding: 2px 8px; border-radius: 999px;
+            margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.04em;
+            box-shadow: 0 0 10px currentColor;
+        }
+        .floating-text {
+            position: absolute; transform: translate(-50%, -50%); font-weight: 900;
+            white-space: nowrap; text-shadow: 0 2px 7px rgba(0,0,0,0.95), 0 0 10px currentColor;
+            pointer-events: none; will-change: transform, opacity;
+        }
+
+        /* Ocean Hazard Vignette */
+        #sea-vignette {
+            position: fixed; inset: 0; pointer-events: none; z-index: 35; opacity: 0;
+            background: radial-gradient(circle at center, rgba(14,165,233,0) 44%, rgba(2,132,199,0.5) 76%, rgba(225,29,72,0.62) 100%);
+            transition: opacity 0.18s ease;
+        }
+        #sea-vignette.active { opacity: 1; animation: seaPulse 0.8s ease-in-out infinite alternate; }
+        @keyframes seaPulse { from { filter: brightness(0.95); } to { filter: brightness(1.25); } }
+
+        /* Purple Blind Fullscreen Overlay */
+        #purple-blind-overlay {
+            position: fixed; inset: 0; pointer-events: none; z-index: 45; opacity: 0;
+            background: radial-gradient(circle at center, rgba(232,121,249,0.95) 0%, rgba(168,85,247,0.93) 48%, rgba(88,28,135,0.97) 100%);
+            transition: opacity 0.12s ease-out;
+            display: flex; align-items: center; justify-content: center; flex-direction: column;
+        }
+        .purple-sigil {
+            width: 210px; height: 210px; border: 4px solid rgba(255,255,255,0.82); border-radius: 50%;
+            box-shadow: 0 0 75px #f0abfc, inset 0 0 55px #e879f9;
+            animation: spinSlow 2.4s linear infinite; display: flex; align-items: center; justify-content: center;
+        }
+        @keyframes spinSlow { from { transform: rotate(0deg) scale(1); } 50% { transform: rotate(180deg) scale(1.07); } to { transform: rotate(360deg) scale(1); } }
+
+        /* Emperor Roll Flash */
+        #emperor-flash {
+            position: fixed; inset: 0; pointer-events: none; z-index: 60; opacity: 0;
+            background: radial-gradient(circle at center, rgba(254,240,138,0.22) 20%, rgba(255,215,0,0.72) 72%, rgba(168,85,247,0.82) 100%);
+            transition: opacity 0.25s ease;
+        }
+
+        /* Skill Hotbar */
+        .skill-slot {
+            position: relative; width: 76px; height: 80px; border-radius: 14px;
+            background: linear-gradient(180deg, rgba(20, 28, 50, 0.94), rgba(10, 14, 28, 0.97));
+            border: 1.5px solid rgba(148, 163, 184, 0.34);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer; transition: transform 0.12s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+            overflow: hidden;
+        }
+        .skill-slot:hover { transform: translateY(-2px); border-color: rgba(251, 191, 36, 0.9); }
+        .skill-slot:active { transform: scale(0.96); }
+        .skill-slot.locked-target-needed { border-color: rgba(248, 113, 113, 0.55); opacity: 0.78; }
+        .skill-slot.target-ready { border-color: #ef4444; box-shadow: 0 0 18px rgba(239, 68, 68, 0.65); }
+        .skill-slot.in-endlag { filter: grayscale(0.85) brightness(0.6); border-color: rgba(249, 115, 22, 0.75); }
+        .skill-cd-mask { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(2, 6, 23, 0.84); pointer-events: none; }
+        .skill-cd-text {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            font-size: 20px; font-weight: 900; color: #fbbf24; text-shadow: 0 2px 8px #000; pointer-events: none;
+        }
+        .key-badge {
+            position: absolute; top: 4px; left: 5px; font-size: 10px; font-weight: 900; padding: 1px 5px;
+            border-radius: 5px; background: rgba(255,255,255,0.16); color: #f1f5f9; border: 1px solid rgba(255,255,255,0.22);
+        }
+
+        .kit-btn { transition: all 0.18s ease; border-radius: 12px; cursor: pointer; }
+        .kit-btn.active-melee {
+            background: linear-gradient(135deg, rgba(220, 38, 38, 0.42), rgba(234, 88, 12, 0.4));
+            border-color: #fb923c !important; box-shadow: 0 0 16px rgba(249, 115, 22, 0.45);
+        }
+        .kit-btn.active-magic {
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.46), rgba(14, 165, 233, 0.38));
+            border-color: #a78bfa !important; box-shadow: 0 0 16px rgba(139, 92, 246, 0.5);
+        }
+        .btn-roll-active {
+            background: linear-gradient(135deg, #f59e0b, #ea580c) !important;
+            border-color: #fcd34d !important;
+            animation: rollPulse 1.6s infinite;
+        }
+        @keyframes rollPulse {
+            0%, 100% { box-shadow: 0 4px 16px rgba(245,158,11,0.5); }
+            50% { box-shadow: 0 4px 28px rgba(251,191,36,0.95); }
+        }
+        @keyframes killHealFlash {
+            0% { box-shadow: 0 0 0 rgba(16,185,129,0); border-color: rgba(148,163,184,0.3); }
+            30% { box-shadow: 0 0 34px rgba(16,185,129,0.95), 0 0 54px rgba(251,191,36,0.8); border-color: #fde047; transform: scale(1.035); }
+            100% { box-shadow: 0 10px 28px rgba(0,0,0,0.45); border-color: rgba(148,163,184,0.3); transform: scale(1); }
+        }
+        .hp-kill-heal-flash { animation: killHealFlash 0.9s ease-out; }
+        .modal-backdrop { background: rgba(2, 6, 20, 0.78);  }
+
+        /* Global Drag & Drop PNG Overlay */
+        #drop-overlay {
+            position: fixed; inset: 0; z-index: 80; display: none;
+            align-items: center; justify-content: center;
+            background: rgba(6, 12, 28, 0.84);
+            
+            pointer-events: none;
+        }
+        #drop-overlay.active { display: flex; }
+        .drop-box {
+            border: 3px dashed #fbbf24; border-radius: 28px;
+            background: radial-gradient(circle at center, rgba(251,191,36,0.16), rgba(15,23,42,0.92));
+            box-shadow: 0 0 60px rgba(251,191,36,0.35);
+            padding: 36px 48px; text-align: center; max-width: 520px;
+        }
+
+        @media (max-width: 768px) {
+            .skill-slot { width: 58px; height: 64px; }
+            .skill-slot .skill-name { font-size: 9px; }
+            .skill-slot .skill-sub { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D WebGL Viewport -->
+    <div id="game-container"></div>
+
+    <!-- Projected 2D Enemy Health Bars & Floating Damage Numbers -->
+    <div id="world-overlay"></div>
+
+    <!-- Ocean Hazard Vignette & Emperor Roll Flash -->
+    <div id="sea-vignette"></div>
+    <div id="emperor-flash"></div>
+
+    <div id="sea-warning-banner" class="fixed top-14 left-1/2 -translate-x-1/2 z-40 hidden pointer-events-none px-3 w-full max-w-2xl flex justify-center">
+        <div class="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-sky-950/95 via-rose-950/95 to-sky-950/95 border-2 border-sky-400 shadow-[0_0_28px_rgba(14,165,233,0.75)] flex items-center gap-2 animate-pulse">
+            <span class="font-black text-xs sm:text-sm tracking-wide text-sky-100 text-center">🌊 ĐANG Ở VÙNG BIỂN (-10% HP/s)! QUAY LẠI ĐẤU TRƯỜNG!</span>
+        </div>
+    </div>
+
+    <!-- Bot Magic Telegraph Warning -->
+    <div id="warning-banner" class="fixed top-28 left-1/2 -translate-x-1/2 z-40 hidden pointer-events-none">
+        <div class="px-5 py-2 rounded-full bg-fuchsia-950/95 border-2 border-fuchsia-400 shadow-[0_0_28px_rgba(217,70,239,0.85)] flex items-center gap-2 animate-bounce">
+            <span class="text-lg">⚠️</span>
+            <span class="font-extrabold text-xs sm:text-sm tracking-wide text-fuchsia-200">CẢNH BÁO: PHÁP SƯ AI ĐANG KHÓA CHIÊU LÓA TÍM! (LƯỚT [Q] ĐỂ NÉ!)</span>
+        </div>
+    </div>
+
+    <!-- Full-Screen Purple Blind -->
+    <div id="purple-blind-overlay">
+        <div class="purple-sigil">
+            <svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8">
+                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/>
+                <circle cx="12" cy="12" r="3" fill="white"/>
+            </svg>
+        </div>
+        <div class="mt-6 text-3xl md:text-5xl font-black tracking-widest text-white drop-shadow-lg">LÓA TÍM — BỊ CHOÁNG!</div>
+        <div id="purple-blind-timer" class="mt-2 text-lg font-bold text-fuchsia-100">3.0s</div>
+    </div>
+
+    <!-- Respawn Overlay -->
+    <div id="respawn-overlay" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/75 backdrop-blur-sm">
+        <div class="panel-glass rounded-2xl p-8 text-center border-red-500/50 max-w-md mx-4">
+            <div class="text-5xl mb-3">💀</div>
+            <h2 class="text-3xl font-black text-red-400 tracking-wider mb-2">BẠN ĐÃ BỊ HẠ GỤC</h2>
+            <p class="text-slate-300 text-sm mb-4">Trait, số Kill và lượt Roll của bạn vẫn được giữ nguyên.<br><span class="text-rose-300 font-bold">Buff damage từ hạ gục bị reset về 0%.</span></p>
+            <div class="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-red-500/20 border border-red-400/40 text-amber-300 font-bold">
+                <span>Hồi sinh sau:</span>
+                <span id="respawn-countdown" class="text-xl font-black text-white">2.0s</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none w-full max-w-md px-4"></div>
+
+    <!-- Global Drag & Drop PNG Overlay -->
+    <div id="drop-overlay">
+        <div class="drop-box">
+            <div class="text-5xl mb-3">🖼️</div>
+            <div class="text-2xl font-black text-amber-300 tracking-wide">THẢ ẢNH PNG GỐC VÀO ĐÂY!</div>
+            <p class="text-sm text-slate-200 mt-2 font-semibold">Hỗ trợ kéo thả 1 hoặc cả 7 ảnh PNG cùng lúc.<br>Tự động nhận diện tên: Tân Phàm, Tân Giác, Tân Phá, Tân Vương, Tân Hoàng, Tân Thần, Tân Đế.</p>
+        </div>
+    </div>
+
+    <!-- Hidden Multi-File PNG Input -->
+    <input id="input-multi-png" type="file" multiple accept="image/*" class="hidden">
+
+    <!-- VFX Preview Banner -->
+    <div id="vfx-preview-banner" class="fixed top-16 left-1/2 -translate-x-1/2 z-40 hidden pointer-events-auto">
+        <div class="panel-glass rounded-full px-4 py-1.5 border border-amber-400/80 flex items-center gap-3 shadow-[0_0_24px_rgba(251,191,36,0.4)]">
+            <span class="text-xs font-black text-amber-200">👁️ Đang thử VFX: <b id="vfx-preview-name" class="text-white">Tân Đế</b></span>
+            <button id="btn-exit-vfx-preview" class="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 transition cursor-pointer">Quay về Trait thật</button>
+        </div>
+    </div>
+
+    <!-- ==================== HUD TOP-LEFT: TRAIT CARD ==================== -->
+    <div class="fixed top-3 left-3 z-30 w-64 sm:w-72 pointer-events-auto">
+        <div class="panel-glass rounded-2xl p-3.5">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-[11px] font-bold uppercase tracking-widest text-slate-400">Huyết Mạch / Trait</span>
+                <button id="btn-open-trait-table" class="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-700 border border-slate-600/60 text-amber-300 transition cursor-pointer">
+                    📜 Bảng Trait
+                </button>
+            </div>
+
+            <div id="trait-card" class="rounded-xl p-2.5 bg-slate-900/85 border border-slate-700/80 mb-2.5 flex items-center gap-3">
+                <div class="relative shrink-0">
+                    <canvas id="hud-trait-portrait" width="128" height="128" class="w-14 h-14 rounded-full border-2 border-slate-400 shadow-lg bg-slate-900"></canvas>
+                    <span id="trait-rate-badge" class="absolute -bottom-1 -right-1 text-[10px] font-black px-1.5 py-0.5 rounded-md bg-slate-950 text-slate-200 border border-slate-600/80">40%</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5">
+                        <span id="trait-dot" class="w-2.5 h-2.5 rounded-full bg-slate-300 shrink-0"></span>
+                        <span id="trait-name" class="text-lg font-black tracking-wide text-slate-200 truncate">Tân Phàm</span>
+                    </div>
+                    <div id="trait-buffs-list" class="mt-1.5 flex flex-wrap gap-1 text-[10px] font-bold text-slate-400">
+                        <span>Không có buff</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 mb-2.5">
+                <div class="rounded-xl bg-slate-900/75 border border-slate-700/60 px-2.5 py-1.5 flex items-center justify-between">
+                    <span class="text-[11px] text-slate-400 font-semibold">Hạ gục</span>
+                    <span id="hud-kills" class="text-base font-black text-rose-400">0</span>
+                </div>
+                <div class="rounded-xl bg-slate-900/75 border border-slate-700/60 px-2.5 py-1.5 flex items-center justify-between">
+                    <span class="text-[11px] text-slate-400 font-semibold">Lượt Roll</span>
+                    <span id="hud-rolls" class="text-base font-black text-amber-300">0</span>
+                </div>
+            </div>
+
+            <button id="btn-roll-trait" class="w-full py-2.5 px-3 rounded-xl font-black text-xs sm:text-sm tracking-wide text-white transition flex items-center justify-center gap-2 bg-slate-700/85 border border-slate-600/70 cursor-pointer">
+                <span>🎲</span>
+                <span id="btn-roll-text">ROLL TRAIT [R] (Cần 1 Kill)</span>
+            </button>
+
+            <div class="mt-2 rounded-lg bg-emerald-950/65 border border-emerald-400/35 px-2.5 py-1.5 text-[11px] font-bold text-emerald-300 text-center">
+                💚 1 Kill = +1 Trait, Hồi Full Máu &amp; 🔥 +5% DMG
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ==================== HUD TOP-RIGHT: CONTROLS & LIVE MINIMAP ==================== -->
+    <div class="fixed top-3 right-3 z-30 flex flex-col items-end gap-2 pointer-events-auto max-w-[310px]">
+        <div class="flex flex-wrap justify-end gap-1.5">
+            <button id="btn-audio-toggle" class="panel-glass rounded-xl px-3 py-2 text-xs font-extrabold text-sky-300 hover:border-sky-400/70 transition cursor-pointer">
+                🔊 Bật
+            </button>
+            <button id="btn-help-toggle" class="panel-glass rounded-xl px-3 py-2 text-xs font-extrabold text-amber-300 hover:border-amber-400/70 transition cursor-pointer">
+                ❔ Hướng Dẫn
+            </button>
+        </div>
+
+        <div class="panel-glass rounded-2xl p-2 flex flex-col items-center">
+            <canvas id="minimap-canvas" width="150" height="150" class="rounded-xl border border-sky-300/45 shadow-inner" style="width:144px;height:144px;"></canvas>
+            <div class="w-full flex items-center justify-between text-[10px] font-bold mt-1 px-0.5">
+                <span class="text-amber-200">🏝️ Đấu Trường</span>
+                <span class="text-sky-300">🌊 Biển (-10%/s)</span>
+            </div>
+        </div>
+
+        <div id="battle-log" class="w-full flex flex-col gap-1 items-end pointer-events-none"></div>
+    </div>
+
+    <!-- ==================== HUD BOTTOM-CENTER: HP, STATUS & HOTBAR ==================== -->
+    <div class="fixed bottom-3 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2 w-full max-w-2xl px-2 pointer-events-none">
+
+        <div id="target-lock-indicator" class="hidden px-3.5 py-1 rounded-full bg-rose-950/90 border border-rose-400/90 shadow-[0_0_18px_rgba(244,63,94,0.55)] text-xs font-extrabold text-rose-100 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-rose-400 animate-ping"></span>
+            <span id="target-lock-name">KHÓA MỤC TIÊU</span>
+        </div>
+
+        <div class="w-full max-w-md flex flex-col gap-1.5">
+            <div id="endlag-bar-container" class="hidden panel-glass rounded-xl px-3 py-1.5 border-orange-500/80">
+                <div class="flex justify-between items-center text-[11px] font-black text-orange-300 mb-1">
+                    <span>⏳ ENDLAG — ĐỨNG YÊN HỒI LỰC</span>
+                    <span id="endlag-timer-text">2.0s</span>
+                </div>
+                <div class="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
+                    <div id="endlag-fill" class="h-full bg-gradient-to-r from-amber-400 to-orange-600" style="width:100%"></div>
+                </div>
+            </div>
+
+            <div id="cc-bar-container" class="hidden panel-glass rounded-xl px-3 py-1.5 border-fuchsia-500/80">
+                <div class="flex justify-between items-center text-[11px] font-black text-fuchsia-300 mb-1">
+                    <span id="cc-label-text">⚡ BỊ KHỐNG CHẾ</span>
+                    <span id="cc-timer-text">1.0s</span>
+                </div>
+                <div class="w-full h-2 rounded-full bg-slate-900 overflow-hidden">
+                    <div id="cc-fill" class="h-full bg-gradient-to-r from-fuchsia-400 to-purple-600" style="width:100%"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="player-hp-card" class="w-full max-w-md panel-glass rounded-2xl px-3.5 py-2 pointer-events-auto">
+            <div class="flex justify-between items-center text-xs font-extrabold mb-1">
+                <span class="text-slate-200">❤️ SINH LỰC</span>
+                <span id="player-hp-text" class="text-emerald-300">1000 / 1000 HP (100%)</span>
+            </div>
+            <div class="relative w-full h-3.5 rounded-full bg-slate-900/95 border border-slate-700/80 overflow-hidden">
+                <div id="player-hp-trail" class="absolute inset-y-0 left-0 bg-amber-400/75 transition-all duration-300" style="width:100%"></div>
+                <div id="player-hp-fill" class="absolute inset-y-0 left-0 bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-300 transition-all duration-100" style="width:100%"></div>
+            </div>
+        </div>
+
+        <div class="panel-glass rounded-2xl p-2 flex flex-col sm:flex-row items-center gap-2 pointer-events-auto">
+            <div class="flex sm:flex-col gap-1.5">
+                <button id="kit-btn-1" class="kit-btn active-melee border border-slate-600/60 px-3 py-1.5 text-left flex items-center gap-2 min-w-[138px]">
+                    <span class="text-[11px] font-black px-1.5 py-0.5 rounded bg-black/40 text-orange-300">1</span>
+                    <div class="leading-tight">
+                        <div class="text-xs font-black text-white">Tân Võ Minh</div>
+                        <div class="text-[10px] font-semibold text-orange-300">Võ (Melee)</div>
+                    </div>
+                </button>
+                <button id="kit-btn-2" class="kit-btn border border-slate-600/60 bg-slate-900/60 px-3 py-1.5 text-left flex items-center gap-2 min-w-[138px]">
+                    <span class="text-[11px] font-black px-1.5 py-0.5 rounded bg-black/40 text-violet-300">2</span>
+                    <div class="leading-tight">
+                        <div class="text-xs font-black text-white">Nội Năng Tân</div>
+                        <div class="text-[10px] font-semibold text-violet-300">Phép (Magic)</div>
+                    </div>
+                </button>
+            </div>
+
+            <div class="hidden sm:block w-px h-16 bg-slate-700/70"></div>
+
+            <div class="flex items-center gap-2">
+                <div id="slot-z" class="skill-slot" data-key="z">
+                    <span class="key-badge">Z</span>
+                    <div id="slot-z-icon" class="text-2xl mb-0.5">👊</div>
+                    <div id="slot-z-name" class="skill-name text-[11px] font-black text-white leading-tight text-center px-1">Lao Tóm</div>
+                    <div id="slot-z-sub" class="skill-sub text-[9px] text-slate-400 font-semibold">20% • Tóm 2s</div>
+                    <div id="slot-z-mask" class="skill-cd-mask" style="height:0%"></div>
+                    <div id="slot-z-cd" class="skill-cd-text hidden"></div>
+                </div>
+                <div id="slot-x" class="skill-slot" data-key="x">
+                    <span class="key-badge">X</span>
+                    <div id="slot-x-icon" class="text-2xl mb-0.5">💥</div>
+                    <div id="slot-x-name" class="skill-name text-[11px] font-black text-white leading-tight text-center px-1">Đập Đất</div>
+                    <div id="slot-x-sub" class="skill-sub text-[9px] text-slate-400 font-semibold">10% • 2s EL</div>
+                    <div id="slot-x-mask" class="skill-cd-mask" style="height:0%"></div>
+                    <div id="slot-x-cd" class="skill-cd-text hidden"></div>
+                </div>
+                <div id="slot-c" class="skill-slot" data-key="c">
+                    <span class="key-badge">C</span>
+                    <div id="slot-c-icon" class="text-2xl mb-0.5">🧲</div>
+                    <div id="slot-c-name" class="skill-name text-[11px] font-black text-white leading-tight text-center px-1">Hút Trói</div>
+                    <div id="slot-c-sub" class="skill-sub text-[9px] text-slate-400 font-semibold">30% • Chỉ Chuột</div>
+                    <div id="slot-c-mask" class="skill-cd-mask" style="height:0%"></div>
+                    <div id="slot-c-cd" class="skill-cd-text hidden"></div>
+                </div>
+                <div class="w-px h-14 bg-slate-700/70"></div>
+                <div id="slot-q" class="skill-slot" data-key="q">
+                    <span class="key-badge">Q</span>
+                    <div class="text-2xl mb-0.5">💨</div>
+                    <div class="skill-name text-[11px] font-black text-sky-300 leading-tight text-center">Lướt</div>
+                    <div id="slot-q-sub" class="skill-sub text-[9px] text-slate-400 font-semibold">CD 1.50s</div>
+                    <div id="slot-q-mask" class="skill-cd-mask" style="height:0%"></div>
+                    <div id="slot-q-cd" class="skill-cd-text hidden"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: CONFIRM ROLL (>= TÂN HOÀNG) ==================== -->
+    <div id="modal-confirm-roll" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop p-4">
+        <div class="panel-glass rounded-2xl max-w-md w-full p-6 border-2 border-amber-400/75 shadow-[0_0_40px_rgba(251,191,36,0.35)]">
+            <div class="flex items-center gap-3 mb-4">
+                <canvas id="confirm-trait-portrait" width="96" height="96" class="w-14 h-14 rounded-full border-2 border-amber-400 shrink-0 bg-slate-900"></canvas>
+                <div>
+                    <h3 id="confirm-roll-title" class="text-base sm:text-lg font-black text-amber-300">⚠️ Bạn chắc chắn muốn roll trait?</h3>
+                    <p class="text-xs text-slate-300 mt-0.5">Trait hiện tại sẽ bị mất sau khi roll!</p>
+                </div>
+            </div>
+            <div id="confirm-roll-message" class="text-sm text-slate-200 leading-relaxed bg-slate-900/80 rounded-xl p-3.5 border border-slate-700 mb-5"></div>
+            <div class="grid grid-cols-2 gap-3">
+                <button id="btn-confirm-cancel" class="py-2.5 px-4 rounded-xl font-bold text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 transition cursor-pointer">Hủy</button>
+                <button id="btn-confirm-ok" class="py-2.5 px-4 rounded-xl font-black text-sm bg-gradient-to-r from-amber-500 to-red-500 hover:brightness-110 text-white shadow-lg transition cursor-pointer">Xác nhận</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: ROLL ANIMATION ==================== -->
+    <div id="modal-roll-anim" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop p-4">
+        <div class="panel-glass rounded-3xl max-w-md w-full p-7 text-center border-2 border-amber-400/50">
+            <div class="text-xs font-extrabold uppercase tracking-[0.22em] text-amber-300 mb-3">THIÊN MỆNH THỨC TỈNH</div>
+            <div id="roll-slot-box" class="py-6 px-4 rounded-2xl bg-slate-950/90 border-2 border-slate-700 mb-4 flex flex-col items-center transition-all">
+                <canvas id="roll-anim-portrait" width="128" height="128" class="w-24 h-24 rounded-full border-2 border-amber-300 shadow-2xl mb-3 bg-slate-900"></canvas>
+                <div id="roll-anim-name" class="text-3xl font-black tracking-wide text-white">...</div>
+                <div id="roll-anim-rate" class="text-xs font-bold text-slate-400 mt-1">Đang quay huyết mạch...</div>
+            </div>
+            <div id="roll-anim-buffs" class="text-sm font-semibold text-slate-300 min-h-[42px] flex items-center justify-center">Vui lòng chờ...</div>
+            <button id="btn-close-roll-anim" class="hidden mt-4 w-full py-2.5 rounded-xl font-black text-sm bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:brightness-110 transition cursor-pointer">NHẬN TRAIT MỚI</button>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: TRAIT TABLE + CUSTOM IMAGE UPLOAD ==================== -->
+    <div id="modal-trait-table" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop p-4">
+        <div class="panel-glass rounded-2xl max-w-3xl w-full max-h-[88vh] flex flex-col overflow-hidden border border-amber-400/45">
+            <div class="flex flex-wrap items-center justify-between px-5 py-4 border-b border-slate-700/70 gap-3">
+                <div>
+                    <h3 class="text-lg font-black text-amber-300">📜 Bảng 7 Bậc Trait, Ảnh PNG Gốc &amp; Hào Quang 3D</h3>
+                    <p class="text-xs text-slate-400 mt-0.5">1 Kill = +1 Roll &amp; Full HP. Từ Tân Hoàng trở lên hỏi xác nhận khi roll.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="btn-clear-png-cache" class="px-3 py-1.5 rounded-xl bg-rose-950/70 hover:bg-rose-900/80 border border-rose-500/50 text-rose-200 text-xs font-extrabold cursor-pointer transition">🗑️ Xóa Ảnh Đã Lưu</button>
+                    <button id="btn-close-trait-table" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-black cursor-pointer shrink-0">✕</button>
+                </div>
+            </div>
+            <div id="trait-table-rows" class="p-4 overflow-y-auto space-y-2.5"></div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL: HELP GUIDE ==================== -->
+    <div id="modal-help" class="fixed inset-0 z-50 hidden items-center justify-center modal-backdrop p-4">
+        <div class="panel-glass rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col overflow-hidden border border-sky-400/45">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-700/70">
+                <h3 class="text-lg font-black text-sky-300">⚔️ Hướng Dẫn Chiến Đấu &amp; Đảo Đấu Trường</h3>
+                <button id="btn-close-help" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-black cursor-pointer">✕</button>
+            </div>
+            <div class="p-5 overflow-y-auto space-y-3 text-sm text-slate-200">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="rounded-xl bg-slate-900/80 p-3 border border-slate-700">
+                        <div class="font-black text-amber-300 mb-1">🎮 Điều Khiển</div>
+                        <ul class="space-y-1 text-xs text-slate-300">
+                            <li><b>WASD</b>: Di chuyển theo hướng camera</li>
+                            <li><b>Q</b>: Lướt nhanh theo hướng di chuyển/chuột (CD 1.5s)</li>
+                            <li><b>R</b>: Roll Trait nhanh</li>
+                            <li><b>Giữ chuột phải + kéo</b>: Xoay góc nhìn 3D</li>
+                            <li><b>Cuộn chuột</b>: Phóng to / thu nhỏ</li>
+                            <li><b>Rê chuột lên đối thủ</b>: Khóa mục tiêu (vòng đỏ)</li>
+                        </ul>
+                    </div>
+                    <div class="rounded-xl bg-sky-950/50 p-3 border border-sky-400/50">
+                        <div class="font-black text-sky-300 mb-1">🏝️ Đảo Đấu Trường &amp; Vùng Biển</div>
+                        <ul class="space-y-1 text-xs text-slate-200">
+                            <li><b>Đảo cát vàng (R=34)</b>: Đấu trường an toàn có vòng cam &amp; tâm đỏ–cam.</li>
+                            <li><b>Biển xanh xung quanh</b>: Rơi xuống sẽ lội nước, chậm còn 72% tốc độ &amp; <b>mất 10% HP/giây</b>!</li>
+                            <li><b>Ring-Out</b>: Dùng <b>Võ [Z]</b> ném hoặc <b>Phép [Z]</b> đẩy đối thủ xuống biển để hạ gục!</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="rounded-xl bg-emerald-950/45 p-3 border border-emerald-400/50 text-xs">
+                    <b class="text-emerald-300">💚 1 Kill = +1 Roll Trait &amp; Hồi Full 100% Máu:</b> Hạ gục đối thủ lập tức hồi đầy sinh lực và tặng 1 lượt quay Trait!<br>
+                    <b class="text-amber-300">🔥 Mỗi Kill = +5% Damage</b> (cộng dồn, cộng thêm vào buff của Trait). Khi bạn bị hạ gục, buff này reset về 0%.
+                </div>
+                <div class="rounded-xl bg-orange-950/35 p-3 border border-orange-500/45 text-xs space-y-1">
+                    <div class="font-black text-orange-300 text-sm">🥊 Phím [1] Võ — Tân Võ Minh (Melee)</div>
+                    <div><b>[Z] Lao Tóm:</b> Lao hướng chuột (vệt gió + tàn ảnh). Trúng: chém chữ X, <b>bóp cổ nhấc bổng 2s</b> (cả 2 đứng yên), chém trăng khuyết rồi ném bay ~11m (stun 1s). Trượt: chỉ có hiệu ứng lao. 20% HP | CD 6s | Endlag 0s.</div>
+                    <div><b>[X] Đập Đất:</b> Bật nhảy cao, lộn ngược đầu rồi lao xuống nện đất: sóng xung kích tinh thể bán kính ~6m, stun <b>1s</b>. 10% HP | CD 8s | <b>Endlag 2s</b> (tính sau khi chạm đất).</div>
+                    <div><b>[C] Hút Trói:</b> <i>Chỉ chuột vào đối thủ</i> → giữ hố đen trọng lực trước mặt rồi hút đối thủ bay vào, stun <b>1.4s</b>. 30% HP | CD 5s | Endlag 0s.</div>
+                </div>
+                <div class="rounded-xl bg-violet-950/35 p-3 border border-violet-500/45 text-xs space-y-1">
+                    <div class="font-black text-violet-300 text-sm">✨ Phím [2] Phép — Nội Năng Tân (Magic)</div>
+                    <div><b>[Z] Tia Năng Lượng:</b> Chùm tia sét kiểu Kamehameha hướng chuột, lồng điện giật, đẩy lùi mạnh + stun <b>1.2s</b>. 20% HP | CD 5s | <b>Endlag 1s</b>.</div>
+                    <div><b>[X] Lóa Tím:</b> <i>Chỉ chuột vào đối thủ</i> → xích địa ngục Hades trồi lên trói chặt, lóa màn hình tím &amp; stun <b>3s</b>. 10% HP | CD 7s | Endlag 0s.</div>
+                    <div><b>[C] Hồi Huyết:</b> Hồi <b>30% HP tối đa</b>. CD 15s | <b>Endlag 1s</b>.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== COMPLETE GAME ENGINE (THREE.JS r128 SAFE) ==================== -->
+    <!-- engine: see game-mp.js -->
+
+    <!-- ==================== MULTIPLAYER UI (injected by convert.js) ==================== -->
+    <div id="mp-join-overlay" class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4">
+        <div class="panel-glass rounded-2xl p-7 max-w-md w-full text-center border-2 border-amber-400/60 shadow-[0_0_44px_rgba(251,191,36,0.3)]">
+            <div class="text-5xl mb-2">⚔️</div>
+            <h1 class="text-2xl font-black tracking-wide text-amber-300">TÂN GIỚI ĐẤU TRƯỜNG 3D</h1>
+            <p class="text-sm text-slate-300 mt-1 mb-4">Đấu trường nhiều người chơi — hạ gục đối thủ, roll Trait, ring-out xuống biển!</p>
+            <input id="mp-name-input" maxlength="16" autocomplete="off" placeholder="Nhập tên của bạn"
+                   class="w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-slate-600 text-center font-bold text-white placeholder-slate-500 outline-none focus:border-amber-400" style="user-select:text;-webkit-user-select:text;">
+            <button id="mp-join-btn" class="mt-3 w-full py-2.5 rounded-xl font-black text-sm tracking-wide text-white bg-gradient-to-r from-amber-500 to-red-500 hover:brightness-110 transition cursor-pointer">
+                ⚔️ VÀO ĐẤU TRƯỜNG
+            </button>
+            <div id="mp-join-msg" class="mt-3 text-xs font-semibold text-sky-300 min-h-[16px]"></div>
+            <button id="mp-offline-btn" class="hidden mt-2 text-xs font-bold text-slate-400 hover:text-slate-200 underline cursor-pointer">Chơi một mình (offline)</button>
+            <div class="mt-3 text-[11px] text-slate-400">Phòng: <b id="mp-room-label" class="text-slate-200">main</b> · thêm <code>?room=tenphong</code> vào địa chỉ để chơi phòng riêng với bạn bè</div>
+        </div>
+    </div>
+
+    <div id="mp-reconnect" class="hidden fixed top-24 left-1/2 -translate-x-1/2 z-[65] pointer-events-none">
+        <div class="px-5 py-2 rounded-full bg-rose-950/95 border-2 border-rose-400 text-rose-100 text-xs font-extrabold shadow-[0_0_24px_rgba(244,63,94,0.6)] animate-pulse">
+            📡 Mất kết nối — đang kết nối lại…
+        </div>
+    </div>
+
+    <div id="mp-board" class="fixed left-3 top-[22rem] z-30 w-64 sm:w-72 hidden md:block pointer-events-none">
+        <div class="panel-glass rounded-2xl p-2.5">
+            <div id="mp-board-head" class="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mb-1.5">🌐 Chưa kết nối</div>
+            <div id="mp-board-rows" class="flex flex-col gap-1"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game-mp.js"></script>
+</body>
+</html>
